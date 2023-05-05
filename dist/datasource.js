@@ -44,8 +44,7 @@ function (angular, _, dateMath, moment) {
 
     // Called once per panel (graph)
     this.query = function(options) {
-      console.log("Do query");
-      console.log(options);
+      console.log("query: options =>", options);
 
       // Replace the template variable in expression with its current value
       options["targets"].forEach(function (target) {
@@ -76,10 +75,35 @@ function (angular, _, dateMath, moment) {
       } else {
         sets = _.groupBy(options.targets, 'datasource');
       }
-      _.forEach(sets, function (targets, dsName) {
-      // Grafana (8.x.x) sends datasource name as undefined with mixed plugin made as default datasource
-      // https://github.com/grafana/grafana/issues/36508
-        if(dsName=="undefined"){
+
+      // the _.forEach(sets, ...) is order sensitive,
+      // all targets that aren't `goshposh-metaqueries-datasource` must iterate before the `goshposh-metaqueries-datasource` ones.
+      // from grafana v9.3.6 -> v9.3.11 the iteration order fails when there are templated datasources in the panel.
+      // So instead of _.forEach we collect the keys from `sets` ensuring that the iteration order is stable and forces all
+      // `goshposh-metaqueries-datasource` after the other datasources.
+      var _ids=[];
+      for (const [key, value] of Object.entries(sets)) {
+          if (value[0].datasource.type !== _this.meta.id) {
+              _ids.push(key);
+          }
+      }
+      for (const [key, value] of Object.entries(sets)) {
+          if (value[0].datasource.type === _this.meta.id) {
+              _ids.push(key);
+          }
+      }
+      console.log("sets:", sets);
+      console.log("_ids:", _ids);
+
+      //_.forEach(sets, function (targets, dsName) {
+      _.forEach(_ids, function (_id_) {
+        var targets=sets[_id_];
+        var dsName=targets[0].datasource.uid ? targets[0].datasource.uid : undefined;
+        console.log("targets=>", targets);
+        console.log("dsName =>", dsName);
+        // Grafana (8.x.x) sends datasource name as undefined with mixed plugin made as default datasource
+        // https://github.com/grafana/grafana/issues/36508
+        if (dsName=="undefined"){
             dsName=_this.datasourceSrv.defaultName
         }
         var promise = null;
@@ -106,7 +130,7 @@ function (angular, _, dateMath, moment) {
         });
 
         //grafana 7.x requires ds_res as promise. Since older plugins doesnt converts to promise, added ds_res.toPromise().
-        _.forEach(targets,function(target){
+        _.forEach(targets, function(target){
           var  nonHiddenTargetPromise = promise;
           if(target.hide===true){
               nonHiddenTargetPromise = _this.datasourceSrv.get(dsName).then(function (ds) {
@@ -217,6 +241,7 @@ function (angular, _, dateMath, moment) {
         options.range.from._d = dateToMoment(options.range.from, false).subtract(periodsToShift-1,'days').toDate();
 
         var metaTarget = angular.copy(targetsByRefId[query]);
+        //metaTarget = angular.copy( findTargetByRefId(options, query) );
         metaTarget.hide = false;
         options.targets = [metaTarget]
 
@@ -291,6 +316,7 @@ function (angular, _, dateMath, moment) {
         options.range.to._d = dateToMoment(options.range.to, false).add(periodsToShift,timeshiftUnit).toDate();
 
         var metaTarget = angular.copy(targetsByRefId[query]);
+        //metaTarget = angular.copy( findTargetByRefId(options, query) );
         metaTarget.hide = false;
         options.targets = [metaTarget]
 
@@ -418,6 +444,9 @@ function (angular, _, dateMath, moment) {
 
     }
 
+    function findTargetByRefId(options, refId) {
+      return options.targets.find(el => el.refId === refId);
+    }
 
   }
   return {
